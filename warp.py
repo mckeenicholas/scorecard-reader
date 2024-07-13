@@ -89,7 +89,7 @@ def process_image(name: str):
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
         if 350 > w > 80 and h > 40:
-            new_img = warped[y + crop_offset_y :y+h - crop_offset_y, x:x+w]
+            new_img = warped[y + crop_offset_y:y+h - crop_offset_y, x:x+w]
 
             cropped = crop_empty(new_img)
 

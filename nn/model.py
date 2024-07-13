@@ -1,60 +1,57 @@
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import functional as F
-from torchvision.models import resnet18, ResNet18_Weights
-from torch import Tensor
 
-class DigitModel(nn.Module):
-    def __init__(self, num_chars) -> None:
-        super(DigitModel, self).__init__()
-        # self.convnet = resnet18(weights=ResNet18_Weights.DEFAULT)
+class CRNN(nn.Module):
+    def __init__(self, num_chars, num_classes) -> None:
+        super(CRNN, self).__init__()
 
+        # Convolutional layers
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(1, 128, kernel_size=(3, 3), padding=(1, 1), bias=False),
+            nn.Conv2d(1, 64, kernel_size=(3, 3), padding=(1, 1), bias=False),
+            nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)),
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, kernel_size=(3, 3), padding=(1, 1), bias=False),
             nn.MaxPool2d(kernel_size=(2, 2)),
             nn.ReLU(),
-            nn.Conv2d(128, 64, kernel_size=(3, 3), padding=(1, 1), bias=False),
-            nn.MaxPool2d(kernel_size=(2, 2)),
+
+            nn.Conv2d(128, 256, kernel_size=(3, 3), padding=(1, 1), bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+
+            nn.Conv2d(256, 256, kernel_size=(3, 3), padding=(1, 1), bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+
+            nn.Conv2d(256, 512, kernel_size=(3, 3), padding=(1, 1), bias=False),
+            nn.BatchNorm2d(512),
+            nn.MaxPool2d(kernel_size=(3, 1)),
             nn.ReLU(),
         )
 
-        self.linear_layers = nn.Sequential(
-            nn.Linear(1152, 64),
-            nn.ReLU(),
-            nn.Dropout(0.2),
+        # BiLSTM layers
+        self.lstm = nn.Sequential(
+            nn.LSTM(512, 256, bidirectional=True, batch_first=True, dropout=0.2),
+            nn.LSTM(512, 256, bidirectional=True, batch_first=True, dropout=0.2)
         )
 
-        self.gru = nn.GRU(64, 32, bidirectional=True, num_layers=2, dropout=0.25, batch_first=True)
-        self.output = nn.Linear(64, num_chars + 1)
-
-    def ctc_loss(self, x, targets):
-        batch_size = x.size(1)
-        log_softmax = nn.functional.log_softmax(x, 2)
-        input_length = torch.full(size=(batch_size, ), fill_value=log_softmax.size(0), dtype=torch.int32)
-        target_length = torch.full(size=(batch_size, ), fill_value=targets.size(1), dtype=torch.int32)
-
-        loss = nn.CTCLoss(blank=0)(log_softmax, targets, input_length, target_length)
-
-        return loss
+        # Fully connected layer
+        self.fc = nn.Linear(512, num_classes)
 
 
     def forward(self, images, targets=None):
-        batch_size, _, _, _ = images.size()
         x = self.conv_layers(images)
-        x = x.permute(0, 3, 1, 2)
-        x = x.view(batch_size, x.size(1), -1)
-        x = self.linear_layers(x)
-        x, _ = self.gru(x)
-        x = self.output(x)
-        x = x.permute(1, 0, 2)
-        if targets is not None:
-            loss = self.ctc_loss(x, targets)
-            return x, loss
+        x = x.squeeze(2)
+        x = x.permute(0, 2, 1)
+        x = self.lstm(x)
+        x = self.fc(x)
 
-        return x, None
+        return x
+
         
 if __name__ == "__main__":
-    model = DigitModel(10)
+    model = CRNN(10)
     img = torch.rand(1, 1, 75, 300)
     target = torch.randint(1, 20, (1, 5))
     x, loss = model(img, target)
